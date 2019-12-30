@@ -1,0 +1,382 @@
+
+
+	String environment = null;
+	LoginPage loginpage;
+	HomePage homepage;
+	TestUtilily testutil;
+	NewBusinessQuotesPage newBusinessQuotesPage;
+	ServiceRequestIndexingPage serviceRequestIndexingPage;
+	LoginInToInBoxPage loginInToInBoxPage;
+	FinancialRequestPage financialRequestPage;
+	PolicyActivation policyActivation;
+	AdditionDeletionRidersPage additionDeletionRidersPage;
+	String ticketNumber;
+	ADDBAndTPDRiderClaimPage addbAndTPDRiderClaimPage;
+	FinancialAlteration financialAlteration;
+	DeathClaimPage deathClaimPage;
+	String eventDate;
+	String policyNumber;
+
+	CriticalIllnessRiderClaimPage criticalIllnessRiderClaimPage;
+
+	public ADDBAndTPDRiderClaim() {
+		super();
+	}
+
+	@BeforeClass
+	public void setUp() throws InterruptedException {
+		iniatilization();
+		environment = prop.getProperty("environment");
+		loginpage = new LoginPage();
+		homepage = new HomePage();
+		testutil = new TestUtilily();
+		serviceRequestIndexingPage = new ServiceRequestIndexingPage();
+		loginInToInBoxPage = new LoginInToInBoxPage();
+		financialRequestPage = new FinancialRequestPage();
+		policyActivation = new PolicyActivation();
+		additionDeletionRidersPage = new AdditionDeletionRidersPage();
+		addbAndTPDRiderClaimPage = new ADDBAndTPDRiderClaimPage();
+		financialAlteration = new FinancialAlteration();
+		deathClaimPage = new DeathClaimPage();
+		criticalIllnessRiderClaimPage = new CriticalIllnessRiderClaimPage();
+	}
+
+	public String getPolicyNumber() throws SQLException, IOException {
+
+		Connection con = null;
+		Statement createStatement1 = null;
+		ResultSet dataentry = null;
+
+		try {
+			con = TestUtilily.getJdbcConnection();
+			createStatement1 = con.createStatement();
+			dataentry = createStatement1
+					.executeQuery("select cellid from vpas.cell where policystatus='AP' and cellid in "
+							+ "(select cellid from vpas.cecovlayer where covid='004') and cellid in (select cellid from vpas.cecovlayer where covid='002') and cellid not in "
+							+ "(select policy_number from VPAS.alpha_service_request where service_request_type in ('Surrender','Policy Cancellation','Death Claim','Reopen Death Claim','ADDB and TPD Rider Claim','Addition/Deletion of Riders','Excess Contribution Refund'))and cellid not in (select cellid from vpas.pendevnt where errcode!='0000' and evntdate >=sysdate)order by cellid desc");
+			while (dataentry.next()) {
+				policyNumber = (dataentry.getString("CELLID"));
+			}
+		} catch (Exception e) {
+			System.out.println("Exception: " + e);
+		}
+
+		finally {
+			if (dataentry != null) {
+				dataentry.close();
+			}
+			if (createStatement1 != null) {
+				createStatement1.close();
+			}
+			if (con != null) {
+				con.close();
+			}
+		}
+		return policyNumber;
+	}
+
+	@Test(priority = 0)
+	public void ADDBAndTPDRiderClaimRequest() throws InterruptedException, SQLException, IOException {
+		System.out.println("########################Financial Flow ########################");
+		policyNumber = getPolicyNumber();
+		System.out.println("Policy Number:" + policyNumber);
+		System.out.println("Financial:Enter URL");
+		getDriver().get(prop.getProperty(environment + "url"));
+
+		System.out.println("Financial FLow:Login");
+		loginpage.loginTest(prop.getProperty("userName"), prop.getProperty("passWord"));
+
+		System.out.println("Financial:Switch to Frame");
+		testutil.switchToFrame();
+		System.out.println("Financial:Click On Service Indexing Page On HomePage");
+		homepage.clickOnServiceIndexingPage();
+
+		System.out.println("Financial:Enter Request Type,Proposal Number and Date");
+		serviceRequestIndexingPage.enterDetailsInServiceRequestIndexingForFinancialTransaction(
+				"ADDB and TPD Rider Claim", policyNumber);
+
+		addbAndTPDRiderClaimPage.selectListofMandatoryDocument();
+		addbAndTPDRiderClaimPage.enterAllTheDates();
+		addbAndTPDRiderClaimPage.enterClaimantDetails();
+		addbAndTPDRiderClaimPage.claimADDBOrTPDRider();
+		addbAndTPDRiderClaimPage.clickOnSubmitBtn();
+
+		System.out.println("Get the Ticket Number");
+		System.out.println("Transaction submitted successfully for Ticket Number:"
+				+ serviceRequestIndexingPage.getTheTicketNumber());
+		ticketNumber = serviceRequestIndexingPage.getTheTicketNumber();
+		System.out.println("Ticket Number:" + ticketNumber);
+		String actual = serviceRequestIndexingPage.verfiyPopUpMessageForTransactionSubmitted();
+
+		Assert.assertEquals(actual,
+				"Transaction submitted successfully for Ticket Number:"
+						+ serviceRequestIndexingPage.getTheTicketNumber() + "",
+				"Message:Transaction submitted successfully for Ticket Number is not verified:");
+		if (environment.equalsIgnoreCase("DM"))
+			financialRequestPage.clickOnPopUpOkBtnDMToSubmitFinancialRequest();
+		else
+			financialRequestPage.clickOnPopUpOkBtnToSubmitFinancialRequest();
+
+		financialRequestPage.logOut();
+
+		Thread.sleep(10000);
+	}
+
+	@SuppressWarnings("resource")
+	@Test(priority = 1, dependsOnMethods = "ADDBAndTPDRiderClaimRequest")
+	
+	//@Test
+	public void RunTheBatchForI201Event() throws SQLException, IOException, InterruptedException, ParseException {
+
+		Connection con = null;
+		Statement createStatement1 = null;
+		ResultSet dataentry = null;
+
+		System.out.println("Running the batch for Event I201 ");
+		try {
+			con = TestUtilily.getJdbcConnection();
+			createStatement1 = con.createStatement();
+
+			dataentry = createStatement1.executeQuery("select EVNTCODE, EVNTDATE  from VPAS.pendevnt where cellid= '"
+					+ policyNumber + "' and ERRCODE!='0000' and EVNTCODE='I201'");
+
+			while (dataentry.next()) {
+				System.out.println(dataentry.getString("EVNTCODE"));
+				System.out.println(dataentry.getString("EVNTDATE"));
+				String Event_Date = dataentry.getString("EVNTDATE");
+				String Event_Code = dataentry.getString("EVNTDATE");
+				eventDate = FileOperations.getFormatedDate(Event_Date);
+				System.out.println("Event Date:" + eventDate);
+			}
+			FileOperations.updateBatchRunDetails(eventDate, policyNumber);
+			Thread.sleep(360000);
+			// validate event I201 has been processed.
+
+			dataentry = createStatement1.executeQuery(
+					"select ERRCODE from VPAS.pendevnt where cellid= '" + policyNumber + "' and EVNTCODE='I201'");
+			while (dataentry.next()) {
+				String errorCode = dataentry.getString("ERRCODE");
+				Assert.assertEquals(errorCode, "0000");
+			}
+
+		} catch (Exception e) {
+			System.out.println("Exception: " + e);
+		}
+
+		finally {
+			if (dataentry != null) {
+				dataentry.close();
+			}
+			if (createStatement1 != null) {
+				createStatement1.close();
+			}
+			if (con != null) {
+				con.close();
+			}
+		}
+	}
+
+	 @Test(priority = 2, dependsOnMethods = "RunTheBatchForI201Event")
+		public void dataEnteryStage() throws InterruptedException, IOException, SQLException {
+
+		System.out.println("##############################DataEnteryStage TestStarts#################################");
+		System.out.println("DataEntryStageTest:Enter URL");
+		getDriver().get(prop.getProperty(environment + "url"));
+
+		System.out.println("DataEntryStageTest:Login with Genreated Owner ID");
+		loginpage.loginTest(TestUtilily.LoginWithOwnerId("Application Entry", ticketNumber),
+				prop.getProperty("passWord"));
+
+		homepage.clickOnInboxLink();
+		loginInToInBoxPage.logintoinbox(prop.getProperty("stagename_DEQ"), prop.getProperty("status"), ticketNumber);
+
+		addbAndTPDRiderClaimPage.clickOnContinueBtn();
+
+		Assert.assertTrue(addbAndTPDRiderClaimPage.verifyQuoteofDisplayed(), "Quote is not present");
+		addbAndTPDRiderClaimPage.clickOnSubmitBtnAtDEStage();
+
+		addbAndTPDRiderClaimPage.selectDisbursementMethod();
+
+		System.out.println("Popup Messsage :" + addbAndTPDRiderClaimPage.VerifyPopMessageSubmitToApproval());
+		String actual = addbAndTPDRiderClaimPage.VerifyPopMessageSubmitToApproval();
+		Assert.assertEquals(actual, "Do you want to submit the request to the Approver?",
+				"Message:Do you want to submit the request to the Approver? is not verified:");
+
+		addbAndTPDRiderClaimPage.clickOnPopUpYesBtn();
+		Assert.assertFalse(deathClaimPage.NonFinancialRequestPending(),
+				"Non Financial request Pending is peniding on this Policy");
+
+		Thread.sleep(500);
+		String actual1 = financialRequestPage.getThePopUpMessageRequestSubmited();
+		System.out.println("Request:" + financialRequestPage.getThePopUpMessageRequestSubmited());
+
+		Assert.assertEquals(actual1, "Request Submitted Sucessfully",
+				"Message: Request Submitted Sucessfully is not verified:");
+
+		financialRequestPage.clickOnPopUpRequestSubmittedOkBtn();
+		financialRequestPage.logOut();
+		System.out.println("##############################DataEnteryStage Test Ends#################################");
+	}
+
+	@Test(priority = 3, dependsOnMethods = "dataEnteryStage")
+	//@Test
+	public void ApprovalStage() throws InterruptedException, IOException, SQLException {
+
+		System.out.println("##############################ApprovalStage TestStarts#################################");
+		System.out.println("Approval Stage:Enter URL");
+		getDriver().get(prop.getProperty(environment + "url"));
+
+		System.out.println("ApprovalStage:Login with Genreated Owner ID");
+		loginpage.loginTest(TestUtilily.LoginWithOwnerId("Request Approval", ticketNumber),
+				prop.getProperty("passWord"));
+
+		homepage.clickOnInboxLink();
+		loginInToInBoxPage.logintoinbox("Approval", prop.getProperty("status"), ticketNumber);
+
+		addbAndTPDRiderClaimPage.selectClaimDecision();
+		addbAndTPDRiderClaimPage.clickOnApproveBtn();
+
+		String actual = deathClaimPage.deathClaimVerifyPopMessageToApproveTheRequest();
+		Assert.assertEquals(actual, "Do you want to Approve the request?",
+				"Message:Do you want to Approve the request? is not verified:");
+
+		deathClaimPage.deathClaimClickOnYesOnPopUp();
+		String actual1 = financialRequestPage.getThePopUpMessageRequestSubmited();
+		System.out.println("Request:" + financialRequestPage.getThePopUpMessageRequestSubmited());
+
+		Thread.sleep(10000);
+		Assert.assertEquals(actual1, "Request Submitted Sucessfully",
+				"Message: Request Submitted Sucessfully is not verified:");
+
+		financialRequestPage.clickOnPopUpRequestSubmittedOkBtn();
+		financialRequestPage.logOut();
+
+		System.out.println("##############################ApprovalStage Test Ends#################################");
+		Thread.sleep(10000);
+	}
+
+	@Test(priority = 4, dependsOnMethods = "ApprovalStage")
+	// @Test
+	public void RunTheBatchForI221Event() throws SQLException, IOException, InterruptedException, ParseException {
+
+		Connection con = null;
+		Statement createStatement1 = null;
+		ResultSet dataEntry = null;
+
+		System.out.println("Running the batch for Event I221 ");
+		try {
+			con = TestUtilily.getJdbcConnection();
+			createStatement1 = con.createStatement();
+
+			dataEntry = createStatement1.executeQuery("select EVNTCODE, EVNTDATE  from VPAS.pendevnt where cellid= '"
+					+ policyNumber
+					+ "' and ERRCODE!='0000' and EVNTCODE='I221'");
+
+			while (dataEntry.next()) {
+				System.out.println(dataEntry.getString("EVNTCODE"));
+				System.out.println(dataEntry.getString("EVNTDATE"));
+				String Event_Date = dataEntry.getString("EVNTDATE");
+				String Event_Code = dataEntry.getString("EVNTDATE");
+				eventDate = FileOperations.getFormatedDate(Event_Date);
+				System.out.println("Event Date:" + eventDate);
+			}
+			FileOperations.updateBatchRunDetails(eventDate, policyNumber);
+			Thread.sleep(360000);
+			// validate event S804 has been processed.
+
+			dataEntry = createStatement1.executeQuery("select ERRCODE from VPAS.pendevnt where cellid= '"
+					+ policyNumber + "' and EVNTCODE='I221'");
+			while (dataEntry.next()) {
+				String errorCode = dataEntry.getString("ERRCODE");
+				Assert.assertEquals(errorCode, "0000");
+			}
+		} catch (Exception e) {
+			System.out.println("Exception: " + e);
+		}
+
+		finally {
+			if (dataEntry != null) {
+				dataEntry.close();
+			}
+			if (createStatement1 != null) {
+				createStatement1.close();
+			}
+			if (con != null) {
+				con.close();
+			}
+		}
+
+	}
+
+	@Test(priority = 5, dependsOnMethods = "RunTheBatchForI221Event")
+	// @Test
+	public void PendingDisbursementStage() throws InterruptedException {
+
+		System.out.println(
+				"##############################PendingDisbursementStage TestStarts#################################");
+		System.out.println("PendingDisbursementStage:Enter URL");
+		getDriver().get(prop.getProperty(environment + "url"));
+		loginpage.loginTest(prop.getProperty("userName"), prop.getProperty("passWord"));
+		testutil.switchToFrame();
+		homepage.clickOnPendingDisbursement();
+		deathClaimPage.disbursementStageEnterDetails(policyNumber);
+
+		addbAndTPDRiderClaimPage.dothePendingPaymentsForADDBTPDRider(policyNumber);
+		financialRequestPage.logOut();
+		System.out.println(
+				"##############################PendingDisbursementStage Test Ends#################################");
+
+		Thread.sleep(10000);
+	}
+
+	@SuppressWarnings("resource")
+	@Test(priority = 6, dependsOnMethods = "PendingDisbursementStage")
+	public void RunTheBatchForS804Event() throws SQLException, IOException, InterruptedException, ParseException {
+
+		Connection con = null;
+		Statement createStatement1 = null;
+		ResultSet dataEntry = null;
+
+		System.out.println("Running the batch for Event I220 ");
+		try {
+			con = TestUtilily.getJdbcConnection();
+			createStatement1 = con.createStatement();
+
+			dataEntry = createStatement1.executeQuery("select EVNTCODE, EVNTDATE  from VPAS.pendevnt where cellid= '"
+					+ policyNumber+ "' and ERRCODE!='0000' and EVNTCODE='S804'");
+
+			while (dataEntry.next()) {
+				System.out.println(dataEntry.getString("EVNTCODE"));
+				System.out.println(dataEntry.getString("EVNTDATE"));
+				String Event_Date = dataEntry.getString("EVNTDATE");
+				String Event_Code = dataEntry.getString("EVNTDATE");
+				eventDate = FileOperations.getFormatedDate(Event_Date);
+				System.out.println("Event Date:" + eventDate);
+			}
+			FileOperations.updateBatchRunDetails(eventDate, policyNumber);
+			Thread.sleep(360000);
+			// validate event S804 has been processed.
+
+			dataEntry = createStatement1.executeQuery("select ERRCODE from VPAS.pendevnt where cellid= '"
+					+ policyNumber + "' and EVNTCODE='S804'");
+			while (dataEntry.next()) {
+				String errorCode = dataEntry.getString("ERRCODE");
+				Assert.assertEquals(errorCode, "0000");
+			}
+		} catch (Exception e) {
+			System.out.println("Exception: " + e);
+		}
+
+		finally {
+			if (dataEntry != null) {
+				dataEntry.close();
+			}
+			if (createStatement1 != null) {
+				createStatement1.close();
+			}
+			if (con != null) {
+				con.close();
+			}
+		}
+	}
+
