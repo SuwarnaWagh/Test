@@ -1,0 +1,133 @@
+public class TestBase {
+
+	public WebDriver driver;
+	public static Properties prop;
+	public EventFiringWebDriver e_driver;
+	public static WebEventListener eventListner;
+	public static ThreadLocal<WebDriver> threadDriver = new ThreadLocal<WebDriver>();
+	String environment = null;
+	/*public static ExtentHtmlReporter htmlReporter;
+	public static ExtentReports extent;
+	public static ExtentTest test;*/
+	
+	TestBase base;
+
+	public TestBase() {
+
+		try {
+			prop = new Properties();
+			FileInputStream fis = new FileInputStream(
+					System.getProperty("user.dir") + "/src/com/tmft/qa/config/config.properties");
+			try {
+				prop.load(fis);
+
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		} catch (FileNotFoundException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+	}
+		
+	public void iniatilization() {
+		System.out.println("Threads Created:" + Thread.currentThread().getId());
+		// PropertyConfigurator.configure(prop.getProperty("log4jFilePath"));
+	    String browser = prop.getProperty("browser");
+		environment = prop.getProperty("environment");
+	    String DriverPath=Paths.get(System.getProperty("user.dir"),"drivers","exe").toString();
+	    
+	    System.out.println("In initialization...");
+		if (browser.equalsIgnoreCase("firefox")) {
+			
+			System.setProperty("webdriver.gecko.driver", DriverPath.replace("exe", "geckodriver.exe"));
+			FirefoxOptions profile = new FirefoxOptions();
+			profile.addPreference("browser.download.dir", prop.getProperty("fileDownloadPath"));
+			profile.addPreference("browser.download.folderList", 2);
+			profile.addPreference("browser.helperApps.neverAsk.saveToDisk", "application/pdf");
+			profile.addPreference("browser.download.manager.showWhenStarting", false);
+			profile.addPreference("pdfjs.disabled", true);
+			driver = new FirefoxDriver(profile);
+			System.out.println("Log:: Driver instance created...");
+		}
+
+		else if (browser.equalsIgnoreCase("chrome")) {
+		   System.setProperty("webdriver.chrome.driver", DriverPath.replace("exe", "chromedriver.exe"));
+			HashMap<String, Object> chromePrefs = new HashMap<String, Object>();
+			chromePrefs.put("profile.default_content_settings.popups", 0);
+			chromePrefs.put("download.default_directory", prop.getProperty("fileDownloadPath"));
+			ChromeOptions options = new ChromeOptions();
+			options.setExperimentalOption("prefs", chromePrefs);
+			driver = new ChromeDriver(options);
+		}
+
+		e_driver = new EventFiringWebDriver(driver);
+		eventListner = new WebEventListener();
+		e_driver.register(eventListner);
+		driver = e_driver;
+
+		setDriver(driver);
+
+		getDriver().manage().window().maximize();
+		System.out.println("Log:: Maximize");
+		getDriver().manage().deleteAllCookies();
+		System.out.println("Log:: cookies deleted...");
+		getDriver().manage().timeouts().pageLoadTimeout(TestUtilily.PAGE_LOAD_TIMEOUT, TimeUnit.SECONDS);
+		System.out.println("Log:: after page load timeout...");
+		getDriver().manage().timeouts().implicitlyWait(TestUtilily.IMPLICIT_WAIT, TimeUnit.SECONDS);
+		System.out.println("Log:: wait...");
+		System.out.println("open URL...");
+		//getDriver().get(prop.getProperty(environment + "url"));
+	}
+
+	public void setDriver(WebDriver driver) {
+		threadDriver.set(driver);
+	}
+
+	public WebDriver getDriver() {
+		return threadDriver.get();
+	}
+
+	
+	  @AfterClass public void tearDown() { threadDriver.remove();
+//  extent.flush();	  
+	  }
+	 
+
+	 
+     /* @BeforeSuite
+      public void ReportsetUp() {
+		    ArrayList<String> excelData = TestUtilily.readDataFromExcel(1, 1);
+			System.out.println("Excel data is: " + excelData);
+             htmlReporter = new ExtentHtmlReporter(System.getProperty("user.dir") + "/test-output/Extent_Report.html");
+             extent = new ExtentReports();
+             extent.attachReporter(htmlReporter);
+
+             htmlReporter.config().setChartVisibilityOnOpen(true);
+             htmlReporter.config().setDocumentTitle("TMFT Testing Report");
+             htmlReporter.config().setReportName("Policy Creation For Ahdaf" +excelData.get(0));
+             htmlReporter.config().setTestViewChartLocation(ChartLocation.TOP);
+             htmlReporter.config().setTheme(Theme.STANDARD);
+      }*/
+     
+	 
+	/* @AfterMethod
+      public void getResult(ITestResult result) {
+          if(result.getStatus() == ITestResult.FAILURE) {
+              test.log(Status.FAIL, MarkupHelper.createLabel(result.getName()+" FAILED ", ExtentColor.RED));
+              test.fail(result.getThrowable());
+          }
+          else if(result.getStatus() == ITestResult.SUCCESS) {
+              test.log(Status.PASS, MarkupHelper.createLabel(result.getName()+" PASSED ", ExtentColor.GREEN));
+          }
+          else {
+              test.log(Status.SKIP, MarkupHelper.createLabel(result.getName()+" SKIPPED ", ExtentColor.ORANGE));
+              test.skip(result.getThrowable());
+          }
+      }
+     */
+
+	  
+}
